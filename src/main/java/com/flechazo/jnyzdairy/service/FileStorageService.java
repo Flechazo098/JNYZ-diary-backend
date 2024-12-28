@@ -1,165 +1,66 @@
 package com.flechazo.jnyzdairy.service;
 
-import com.flechazo.jnyzdairy.constant.FileConstants;
-import com.flechazo.jnyzdairy.exception.FileStorageException;
-import com.flechazo.jnyzdairy.util.ImageUtils;
-import lombok.Getter;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
-
 import java.io.IOException;
-import java.nio.file.*;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.Objects;
-import java.util.UUID;
 
 /**
- * 文件存储服务
+ * 文件存储服务接口，提供文件上传、删除和验证等功能。
+ *
+ * @author flechazo
  */
-@Service
-public class FileStorageService {
-
-    private final ImageUtils imageUtils;
-
-    public FileStorageService(ImageUtils imageUtils) {
-        this.imageUtils = imageUtils;
-    }
-
-    @Value("${app.storage.root-path}")
-    private String rootPath;
+public interface FileStorageService {
 
     /**
-     * -- GETTER --
-     *  获取用户文件路径
+     * 将给定的文件存储到指定的目录，并返回文件的访问路径。
+     *
+     * @param file     需要存储的文件对象
+     * @param directory 存储文件的目标目录
+     * @return 文件的相对或绝对路径
+     * @throws IOException 如果文件存储过程中发生IO异常
      */
-    @Getter
-    @Value("${app.storage.user-path}")
-    private String userPath;
-
+    String storeFile(MultipartFile file, String directory) throws IOException;
 
     /**
-     * 保存用户头像
+     * 根据提供的文件路径删除文件。
+     *
+     * @param filePath 要删除的文件的路径
+     * @throws IOException 如果删除文件时发生IO异常
      */
-    public String saveUserAvatar(Long userId, MultipartFile file) throws IOException {
-        validateImageFile(file);
-        String fileName = StringUtils.cleanPath(Objects.requireNonNull(file.getOriginalFilename()));
-        String fileExtension = getFileExtension(fileName);
-        String newFileName = "avatar" + fileExtension;
-
-        Path userAvatarDir = Paths.get(userPath, userId.toString(), "avatar");
-        Files.createDirectories(userAvatarDir);
-
-        Path targetPath = userAvatarDir.resolve(newFileName);
-        Files.copy(file.getInputStream(), targetPath, StandardCopyOption.REPLACE_EXISTING);
-
-        return targetPath.toString();
-    }
+    void deleteFile(String filePath) throws IOException;
 
     /**
-     * 保存日记图片
+     * 保存用户头像文件，并返回该文件的访问路径。
+     *
+     * @param userId 用户标识符
+     * @param file   用户上传的头像文件
+     * @return 用户头像的相对或绝对路径
+     * @throws IOException 如果保存头像过程中发生IO异常
      */
-    public String saveDiaryImage(Long userId, LocalDateTime date, MultipartFile file) throws IOException {
-        return saveImage(userId, date, file, false, null);
-    }
+    String saveUserAvatar(Long userId, MultipartFile file) throws IOException;
 
     /**
-     * 保存日记图片（带水印）
+     * 保存日记条目的图片，并返回该图片的访问路径。
+     *
+     * @param userId 用户标识符
+     * @param date   日记条目日期
+     * @param file   用户上传的图片文件
+     * @return 日记图片的相对或绝对路径
+     * @throws IOException 如果保存图片过程中发生IO异常
      */
-    public String saveDiaryImageWithWatermark(Long userId, LocalDateTime date, MultipartFile file) throws IOException {
-        String watermarkText = date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
-        return saveImage(userId, date, file, true, watermarkText);
-    }
+    String saveDiaryImage(Long userId, LocalDateTime date, MultipartFile file) throws IOException;
 
     /**
-     * 保存图片
+     * 获取用户的根文件夹路径，通常用于构建文件存储位置。
+     *
+     * @return 用户文件的根路径
      */
-    private String saveImage(Long userId, LocalDateTime date, MultipartFile file, boolean withWatermark, String watermarkText) throws IOException {
-        validateImageFile(file);
-        String fileName = StringUtils.cleanPath(Objects.requireNonNull(file.getOriginalFilename()));
-        String fileExtension = getFileExtension(fileName);
-        String newFileName = UUID.randomUUID().toString() + fileExtension;
-
-        String dateStr = date.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-        Path diaryImageDir = Paths.get(userPath, userId.toString(), "diary", dateStr);
-        Files.createDirectories(diaryImageDir);
-
-        Path targetPath = diaryImageDir.resolve(newFileName);
-        Files.copy(file.getInputStream(), targetPath, StandardCopyOption.REPLACE_EXISTING);
-
-        if (withWatermark) {
-            // 添加文字水印（日期）
-            imageUtils.addTextWatermark(targetPath, watermarkText);
-        }
-
-        return targetPath.toString();
-    }
+    String getUserPath();
 
     /**
-     * 删除文件
+     * 验证提供的文件是否为有效的图片文件类型。
+     *
+     * @param file 需要验证的文件对象
      */
-    public void deleteFile(String filePath) throws IOException {
-        Path path = Paths.get(filePath);
-        validateFilePath(path);
-        Files.deleteIfExists(path);
-    }
-
-    /**
-     * 获取文件扩展名
-     */
-    private String getFileExtension(String fileName) {
-        int dotIndex = fileName.lastIndexOf('.');
-        return (dotIndex == -1) ? "" : fileName.substring(dotIndex);
-    }
-
-    /**
-     * 验证图片文件
-     */
-    private void validateImageFile(MultipartFile file) {
-        // 检查文件是否为空
-        if (file.isEmpty()) {
-            throw new FileStorageException("Failed to store empty file");
-        }
-
-        // 检查文件大小
-        if (file.getSize() > FileConstants.MAX_FILE_SIZE) {
-            throw new FileStorageException("File size exceeds maximum limit");
-        }
-
-        // 检查文件类型
-        String contentType = file.getContentType();
-        if (!FileConstants.ALLOWED_IMAGE_TYPES.contains(contentType)) {
-            throw new FileStorageException("File type not allowed");
-        }
-
-        // 检查文件名长度
-        String fileName = StringUtils.cleanPath(Objects.requireNonNull(file.getOriginalFilename()));
-        if (fileName.length() > FileConstants.MAX_FILENAME_LENGTH) {
-            throw new FileStorageException("File name too long");
-        }
-
-        // 检查文件名是否包含非法字符
-        if (fileName.contains("..")) {
-            throw new FileStorageException("Filename contains invalid path sequence");
-        }
-    }
-
-    /**
-     * 验证文件路径
-     */
-    private void validateFilePath(Path path) {
-        // 检查路径是否在允许的目录下
-        try {
-            Path normalizedPath = path.normalize();
-            Path rootDir = Paths.get(rootPath).normalize();
-            if (!normalizedPath.startsWith(rootDir)) {
-                throw new FileStorageException("Invalid file path");
-            }
-        } catch (Exception e) {
-            throw new FileStorageException("Invalid file path", e);
-        }
-    }
-
+    void validateImageFile(MultipartFile file);
 }
